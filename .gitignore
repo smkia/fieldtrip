@@ -1,2 +1,10 @@
 *.asv
-contrib/nutmegtrip/private/nmt_tfplot.asv
+*.swp
+*.m~
+*.o
+*.a
+odmTest
+external/iso2mesh/sample
+.DS_Store
+*.mex
+*.gch

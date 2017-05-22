@@ -5,8 +5,53 @@ function ignore = ignorefields(purpose)
 % size-checking, etc.
 
 switch purpose
-
-    case 'pipeline'
+  
+  case 'appendtimelock'
+    ignore = {
+      'cfg'
+      'label'
+      'time'
+      'dimord'
+      'grad'
+      'elec'
+      'opto'
+      'trialinfo'  % this is dealt with explicitly
+      'sampleinfo' % this is dealt with explicitly
+      };
+    
+  case 'appendfreq'
+    ignore = {
+      'cfg'
+      'label'
+      'time'
+      'freq'
+      'dimord'
+      'grad'
+      'elec'
+      'opto'
+      'trialinfo'  % this is dealt with explicitly
+      'sampleinfo' % this is dealt with explicitly
+      'cumsumcnt'  % this is dealt with explicitly
+      'cumtapcnt'  % this is dealt with explicitly
+      };
+    
+  case 'deface'
+    ignore = {
+      % some fields should be dealt with explicitly
+      'pos'
+      'tri'
+      'tet'
+      'hex'
+      'dim'
+      'transform'
+      % some fields are irrelevant
+      'unit'
+      'coordsys'
+      'fid'
+      'cfg'
+      };
+    
+  case 'pipeline'
     ignore = {
       % some fields that are always allowed to be present in the configuration
       'leadfield'
@@ -14,10 +59,11 @@ switch purpose
       'cfg'
       'previous'
       };
-
+    
   case 'allowed'
     ignore = {
       % some fields that are always allowed to be present in the configuration
+      'postamble'
       'trackconfig'
       'checkconfig'
       'checksize'
@@ -32,12 +78,14 @@ switch purpose
       'previous'
       'progress'
       'outputfilepresent'
+      'toolbox'
       };
     
     
   case {'provenance', 'history'}
     ignore = {
       % these should not be included in the provenance or history
+      'postamble'
       'checkconfig'
       'checksize'
       'trackconfig'
@@ -45,7 +93,6 @@ switch purpose
       'trackdatainfo'
       'trackcallinfo'
       'showcallinfo'
-      'callinfo'
       'warning'
       'debug'
       'progress'
@@ -62,6 +109,7 @@ switch purpose
       'artifact'
       'artfctdef'
       % these fields are for internal usage only
+      'postamble'
       'checkconfig'
       'checksize'
       'trackconfig'

@@ -71,24 +71,24 @@ if mod(nargin-5,2)
 end
 
 % these optional settings do not have defaults
-Pr             = keyval('Pr',            varargin);
-Cr             = keyval('Cr',            varargin);
-refdip         = keyval('refdip',        varargin);
-powmethod      = keyval('powmethod',     varargin); % the default for this is set below
-realfilter     = keyval('realfilter',    varargin); % the default for this is set below
+Pr             = ft_getopt(varargin, 'Pr');
+Cr             = ft_getopt(varargin, 'Cr');
+refdip         = ft_getopt(varargin, 'refdip');
+powmethod      = ft_getopt(varargin, 'powmethod');  % the default for this is set below
+realfilter     = ft_getopt(varargin, 'realfilter'); % the default for this is set below
+subspace       = ft_getopt(varargin, 'subspace');
 % these settings pertain to the forward model, the defaults are set in compute_leadfield
-reducerank     = keyval('reducerank',     varargin);
-normalize      = keyval('normalize',      varargin);
-normalizeparam = keyval('normalizeparam', varargin);
+reducerank     = ft_getopt(varargin, 'reducerank');
+normalize      = ft_getopt(varargin, 'normalize');
+normalizeparam = ft_getopt(varargin, 'normalizeparam');
 % these optional settings have defaults
-feedback       = keyval('feedback',      varargin); if isempty(feedback),      feedback = 'text';            end
-keepcsd        = keyval('keepcsd',       varargin); if isempty(keepcsd),       keepcsd = 'no';               end
-keepfilter     = keyval('keepfilter',    varargin); if isempty(keepfilter),    keepfilter = 'no';            end
-keepleadfield  = keyval('keepleadfield', varargin); if isempty(keepleadfield), keepleadfield = 'no';         end
-lambda         = keyval('lambda',        varargin); if isempty(lambda  ),      lambda = 0;                   end
-projectnoise   = keyval('projectnoise',  varargin); if isempty(projectnoise),  projectnoise = 'yes';         end
-fixedori       = keyval('fixedori',      varargin); if isempty(fixedori),      fixedori = 'no';              end
-subspace       = keyval('subspace',      varargin);
+feedback       = ft_getopt(varargin, 'feedback', 'text');
+keepcsd        = ft_getopt(varargin, 'keepcsd', 'no');
+keepfilter     = ft_getopt(varargin, 'keepfilter', 'no');
+keepleadfield  = ft_getopt(varargin, 'keepleadfield', 'no');
+lambda         = ft_getopt(varargin, 'lambda', 0);
+projectnoise   = ft_getopt(varargin, 'projectnoise', 'yes');
+fixedori       = ft_getopt(varargin, 'fixedori', 'no');
 
 % convert the yes/no arguments to the corresponding logical values
 keepcsd        = strcmp(keepcsd,       'yes');
@@ -191,27 +191,26 @@ else
 end
 
 isrankdeficient = (rank(Cf)<size(Cf,1));
+rankCf = rank(Cf);
 
 % it is difficult to give a quantitative estimate of lambda, therefore also
 % support relative (percentage) measure that can be specified as string (e.g. '10%')
 if ~isempty(lambda) && ischar(lambda) && lambda(end)=='%'
   ratio = sscanf(lambda, '%f%%');
   ratio = ratio/100;
-  lambda = ratio * trace(Cf)/size(Cf,1);
+  if ~isempty(subspace) && numel(subspace)>1,
+    lambda = ratio * trace(subspace*Cf*subspace')./size(subspace,1);
+  else
+    lambda = ratio * trace(Cf)/size(Cf,1);
+  end
 end
 
 if projectnoise
-  % estimate the noise power, which is further assumed to be equal and uncorrelated over channels
-  if isrankdeficient
-    % estimated noise floor is equal to or higher than lambda
-    noise = lambda;
-  else
-    % estimate the noise level in the covariance matrix by the smallest singular value
-    noise = svd(Cf);
-    noise = noise(end);
-    % estimated noise floor is equal to or higher than lambda
-    noise = max(noise, lambda);
-  end
+  % estimate the noise level in the covariance matrix by the smallest (non-zero) singular value
+  noise = svd(Cf);
+  noise = noise(rankCf);
+  % estimated noise floor is equal to or higher than lambda
+  noise = max(noise, lambda);
 end
 
 % the inverse only has to be computed once for all dipoles
@@ -254,7 +253,7 @@ elseif ~isempty(subspace)
     Cf       = s(1:subspace,1:subspace);
     % this is equivalent to subspace*Cf*subspace' but behaves well numerically
     % by construction.
-    invCf    = diag(1./diag(Cf));
+    invCf    = diag(1./diag(Cf + lambda * eye(size(Cf))));
     subspace = u(:,1:subspace)';
     if ~isempty(dat), dat = subspace*dat; end
     
@@ -268,9 +267,9 @@ elseif ~isempty(subspace)
     % the singular vectors of Cy, so we have to do the sandwiching as opposed
     % to line 216
     if strcmp(realfilter, 'yes')
-      invCf = pinv(real(Cf));
+      invCf = pinv(real(Cf) + lambda * eye(size(Cf)));
     else
-      invCf = pinv(Cf);
+      invCf = pinv(Cf + lambda * eye(size(Cf)));
     end
     
     if strcmp(submethod, 'dics_refchan')
@@ -517,10 +516,26 @@ switch submethod
     if fixedori
       error('fixed orientations are not supported for beaming cortico-cortical coherence');
     end
-    % compute cortio-cortical coherence with a dipole at the reference position
-    lf1 = ft_compute_leadfield(refdip, grad, headmodel, 'reducerank', reducerank, 'normalize', normalize);
-    % construct the spatial filter for the first (reference) dipole location
-    filt1 = pinv(lf1' * invCf * lf1) * lf1' * invCf;       % use PINV/SVD to cover rank deficient leadfield
+    if isstruct(refdip) && isfield(refdip, 'filter') % check if precomputed filter is present
+      assert(iscell(refdip.filter) && numel(refdip.filter)==1);
+      filt1 = refdip.filter{1};
+    elseif isstruct(refdip) && isfield(refdip, 'leadfield') % check if precomputed leadfield is present
+      assert(iscell(refdip.leadfield) && numel(refdip.leadfield)==1);
+      lf1 = refdip.leadfield{1};
+      filt1 = pinv(lf1' * invCf * lf1) * lf1' * invCf;       % use PINV/SVD to cover rank deficient leadfield
+    elseif isstruct(refdip) && isfield(refdip, 'pos') % check if only position of refdip is present
+      assert(isnumeric(refdip.pos) && numel(refdip.pos)==3);
+      lf1 = ft_compute_leadfield(refdip.pos, grad, headmodel, 'reducerank', reducerank, 'normalize', normalize);
+      if isfield(refdip,'mom'); % check for fixed orientation
+        lf1 = lf1.*refdip.mom(:); 
+      end; 
+      filt1 = pinv(lf1' * invCf * lf1) * lf1' * invCf;       % use PINV/SVD to cover rank deficient leadfield
+    else % backwards compatible with previous implementation - only position of refdip is present
+      % compute cortio-cortical coherence with a dipole at the reference position
+      lf1 = ft_compute_leadfield(refdip, grad, headmodel, 'reducerank', reducerank, 'normalize', normalize);
+      % construct the spatial filter for the first (reference) dipole location
+      filt1 = pinv(lf1' * invCf * lf1) * lf1' * invCf;       % use PINV/SVD to cover rank deficient leadfield
+    end
     if powlambda1
       Pref = lambda1(filt1 * Cf * ctranspose(filt1));      % compute the power at the first dipole location, Gross eqn. 8
     elseif powtrace
@@ -616,6 +631,10 @@ end
 if isfield(dipout, 'csd')
   dipout.csd( originside) = dipout.csd;
   dipout.csd(~originside) = {[]};
+end
+if isfield(dipout, 'noisecsd')
+  dipout.noisecsd( originside) = dipout.noisecsd;
+  dipout.noisecsd(~originside) = {[]};
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
